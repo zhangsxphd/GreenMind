@@ -160,16 +160,26 @@ export const resourceEfficiency = [
 export const initialExperiments = [
   {
     id: 1,
+    name: '生育期差异',
+    crop: '草莓',
+    treatments: 1,
+    replicates: 3,
+    status: '进行中',
+    date: '2026-04-03',
+    aiEnabled: true,
+  },
+  {
+    id: 2,
     name: '不同灌溉下限对番茄产量及WUE的影响',
     crop: '番茄',
     treatments: 4,
     replicates: 3,
     status: '进行中',
     date: '2026-03-01',
-    aiEnabled: false,
+    aiEnabled: true,
   },
   {
-    id: 2,
+    id: 3,
     name: '高架草莓夜间温光耦合调控试验',
     crop: '草莓',
     treatments: 3,

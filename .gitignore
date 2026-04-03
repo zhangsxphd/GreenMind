@@ -3,6 +3,8 @@ node_modules
 frontend/dist
 backend/dist
 backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
 .env
 .env.*
 !.env.example
