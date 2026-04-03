@@ -1,0 +1,19 @@
+{
+  "name": "smart-agri-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:init": "node src/database/init.js",
+    "db:seed": "node src/database/seed.js",
+    "db:reset": "node src/database/reset.js",
+    "db:verify": "node src/database/verify.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "better-sqlite3": "^12.8.0",
+    "fastify": "^5.8.4"
+  }
+}
