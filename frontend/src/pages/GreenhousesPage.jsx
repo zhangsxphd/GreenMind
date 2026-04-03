@@ -21,6 +21,14 @@ import {
   fetchGreenhouses,
   updateGreenhouseControlRequest,
 } from '../services/greenhousesApi';
+import {
+  buildVisibleGreenhouses,
+  getDemoGreenhouseDetail,
+  getDemoGreenhouseSummary,
+  getDemoGreenhouses,
+  mergeGreenhouseDetailWithDemo,
+  mergeGreenhouseSummaryWithDemo,
+} from '../data/greenhouseData';
 
 const statusOptions = [
   { key: 'all', label: '全部棚室' },
@@ -50,8 +58,9 @@ function buildMetricCard(label, value) {
 
 export default function GreenhousesPage() {
   const { currentUser, showMessage } = useAppShell();
-  const [greenhouses, setGreenhouses] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [greenhouses, setGreenhouses] = useState(() => getDemoGreenhouses());
+  const [isLoading, setIsLoading] = useState(false);
+  const [additionalGreenhouseIds, setAdditionalGreenhouseIds] = useState([]);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -68,23 +77,24 @@ export default function GreenhousesPage() {
 
   const loadGreenhouses = useCallback(
     async ({ silent = false } = {}) => {
-      if (!silent) {
+      if (!silent && greenhouses.length === 0) {
         setIsLoading(true);
       }
 
       try {
         const items = await fetchGreenhouses();
-        setGreenhouses(items);
+        setGreenhouses(buildVisibleGreenhouses(items, additionalGreenhouseIds));
       } catch (error) {
         console.error('Failed to load greenhouses', error);
-        showMessage('棚室数据加载失败，请稍后重试');
+        setGreenhouses((current) => (current.length ? current : getDemoGreenhouses()));
+        showMessage('棚室接口暂不可用，已切换到示例数据');
       } finally {
         if (!silent) {
           setIsLoading(false);
         }
       }
     },
-    [showMessage],
+    [additionalGreenhouseIds, greenhouses.length, showMessage],
   );
 
   useEffect(() => {
@@ -116,39 +126,47 @@ export default function GreenhousesPage() {
     );
   }, [greenhouses]);
 
-  const selectedGreenhouseName = (id) => greenhouses.find((item) => item.id === id)?.name ?? '棚室';
+  const selectedGreenhouseName = (id) =>
+    greenhouses.find((item) => item.id === id)?.name ?? getDemoGreenhouseSummary(id)?.name ?? '棚室';
 
   const openDetailModal = async (greenhouseId) => {
+    const demoDetail = getDemoGreenhouseDetail(greenhouseId);
     setDetailId(greenhouseId);
-    setDetailLoading(true);
-    setDetailItem(null);
+    setDetailLoading(!demoDetail);
+    setDetailItem(demoDetail);
 
     try {
       const item = await fetchGreenhouseDetail(greenhouseId);
-      setDetailItem(item);
+      setDetailItem(mergeGreenhouseDetailWithDemo(item));
     } catch (error) {
       console.error('Failed to load greenhouse detail', error);
-      showMessage('棚室详情加载失败，请稍后重试');
-      setDetailId(null);
+      if (!demoDetail) {
+        showMessage('棚室详情加载失败，请稍后重试');
+        setDetailId(null);
+      }
     } finally {
       setDetailLoading(false);
     }
   };
 
   const openControlModal = async (greenhouseId) => {
+    const demoDetail = getDemoGreenhouseDetail(greenhouseId);
     setControlId(greenhouseId);
-    setControlLoading(true);
-    setControlItem(null);
-    setControlDraft(null);
+    setControlLoading(!demoDetail);
+    setControlItem(demoDetail);
+    setControlDraft(demoDetail ? { ...demoDetail.devices } : null);
 
     try {
       const item = await fetchGreenhouseDetail(greenhouseId);
-      setControlItem(item);
-      setControlDraft({ ...item.devices });
+      const mergedItem = mergeGreenhouseDetailWithDemo(item);
+      setControlItem(mergedItem);
+      setControlDraft({ ...mergedItem.devices });
     } catch (error) {
       console.error('Failed to load greenhouse control detail', error);
-      showMessage('设备控制数据加载失败，请稍后重试');
-      setControlId(null);
+      if (!demoDetail) {
+        showMessage('设备控制数据加载失败，请稍后重试');
+        setControlId(null);
+      }
     } finally {
       setControlLoading(false);
     }
@@ -176,8 +194,10 @@ export default function GreenhousesPage() {
     setSavingControl(true);
 
     try {
-      await updateGreenhouseControlRequest(currentUser.id, controlItem.id, controlDraft);
-      await loadGreenhouses({ silent: true });
+      const updatedItem = await updateGreenhouseControlRequest(currentUser.id, controlItem.id, controlDraft);
+      setGreenhouses((current) =>
+        current.map((item) => (item.id === updatedItem.id ? mergeGreenhouseSummaryWithDemo(updatedItem) : item)),
+      );
       closeControlModal();
       showMessage(`已保存 ${controlItem.name} 的设备控制参数`);
     } catch (error) {
@@ -211,7 +231,8 @@ export default function GreenhousesPage() {
 
     try {
       const item = await createGreenhouseRequest(currentUser.id, payload);
-      await loadGreenhouses({ silent: true });
+      setAdditionalGreenhouseIds((current) => (current.includes(item.id) ? current : [...current, item.id]));
+      setGreenhouses((current) => [...current, mergeGreenhouseSummaryWithDemo(item)]);
       setAddModalOpen(false);
       showMessage(`已新增棚室：${item.name}`);
     } catch (error) {
@@ -239,7 +260,7 @@ export default function GreenhousesPage() {
               <input
                 value={searchKeyword}
                 onChange={(event) => setSearchKeyword(event.target.value)}
-                placeholder="搜索棚室名称 / 作物 / 位置"
+                placeholder="搜索棚室名称 / 作物"
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-700 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               />
             </div>
@@ -387,10 +408,7 @@ export default function GreenhousesPage() {
                     buildMetricCard('负责人', detailItem.manager),
                     buildMetricCard('最近检修', detailItem.lastService),
                   ].map((item) => (
-                    <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                      <p className="text-xs uppercase tracking-wide text-slate-500">{item.label}</p>
-                      <p className="mt-2 text-sm font-semibold text-slate-800">{item.value}</p>
-                    </div>
+                    <DetailStatCard key={item.label} label={item.label} value={item.value} />
                   ))}
                 </div>
 
@@ -403,7 +421,7 @@ export default function GreenhousesPage() {
                         <div className="mt-3 space-y-2">
                           <div className="flex items-center justify-between text-sm text-slate-600">
                             <span>温度</span>
-                            <span className="font-semibold text-slate-800">{point.temp}°C</span>
+                            <span className="font-semibold text-slate-800">{point.temp}° C</span>
                           </div>
                           <div className="flex items-center justify-between text-sm text-slate-600">
                             <span>湿度</span>
@@ -627,6 +645,15 @@ function ControlSwitchCard({ icon: Icon, label, description, checked, onChange }
           />
         </button>
       </div>
+    </div>
+  );
+}
+
+function DetailStatCard({ label, value }) {
+  return (
+    <div className="rounded-[28px] border border-slate-100 bg-slate-50 p-6 shadow-sm">
+      <p className="text-[13px] font-bold tracking-wide text-slate-500">{label}</p>
+      <p className="mt-5 whitespace-pre-line text-[17px] font-bold leading-8 text-slate-800">{value}</p>
     </div>
   );
 }

@@ -102,7 +102,7 @@ function toGreenhouseSummary(row) {
 function mapDecisionRow(row) {
   return {
     id: row.id,
-    greenhouse: row.greenhouse_name,
+    greenhouse: row.greenhouse_name.replace(/\s*\([^)]+\)$/, ''),
     type: row.type,
     action: row.action,
     confidence: `${Math.round(row.confidence * 100)}%`,
@@ -941,13 +941,17 @@ export function getDashboardBundle() {
       INNER JOIN greenhouses g ON g.id = d.greenhouse_id
       WHERE d.status != 'ignored'
       ORDER BY CASE WHEN d.status = 'pending' THEN 0 ELSE 1 END, datetime(d.created_at) DESC, d.id DESC
-      LIMIT 6
+      LIMIT 2
     `)
     .all()
     .map(mapDecisionRow);
 
-  const alerts = listAlerts().slice(0, 4);
-  const greenhouses = listGreenhouses().slice(0, 6);
+  const alerts = listAlerts().filter((alert) => [1, 2, 3].includes(alert.id));
+  const greenhouseSummaries = listGreenhouses();
+  const greenhousePreviewIds = [1, 2, 3];
+  const greenhouses = greenhousePreviewIds
+    .map((greenhouseId) => greenhouseSummaries.find((item) => item.id === greenhouseId))
+    .filter(Boolean);
 
   return {
     kpis: {

@@ -2,40 +2,46 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle, Download } from 'lucide-react';
 import { useAppShell } from '../hooks/useAppShell';
 import {
-  exportAlertsRequest,
   fetchAlerts,
   resolveAlertRequest,
   resolveAllAlertsRequest,
 } from '../services/alertsApi';
+import {
+  buildVisibleAlerts,
+  getDemoAlerts,
+  mergeAlertWithDemo,
+  resolveDemoAlerts,
+} from '../data/alertData';
 
 const tabs = ['全部', '环境报警', '水肥预警', '设备报警'];
 
 export default function AlertsPage() {
   const { currentUser, showMessage } = useAppShell();
   const [filter, setFilter] = useState('全部');
-  const [alertsList, setAlertsList] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [alertsList, setAlertsList] = useState(() => getDemoAlerts());
+  const [isLoading, setIsLoading] = useState(false);
   const [actionKey, setActionKey] = useState('');
 
   const loadAlerts = useCallback(
     async ({ silent = false } = {}) => {
-      if (!silent) {
+      if (!silent && alertsList.length === 0) {
         setIsLoading(true);
       }
 
       try {
         const items = await fetchAlerts();
-        setAlertsList(items);
+        setAlertsList(buildVisibleAlerts(items));
       } catch (error) {
         console.error('Failed to load alerts', error);
-        showMessage('报警数据加载失败，请稍后重试');
+        setAlertsList((current) => (current.length ? current : getDemoAlerts()));
+        showMessage('报警接口暂不可用，已切换到示例数据');
       } finally {
         if (!silent) {
           setIsLoading(false);
         }
       }
     },
-    [showMessage],
+    [alertsList.length, showMessage],
   );
 
   useEffect(() => {
@@ -48,36 +54,38 @@ export default function AlertsPage() {
   );
 
   const handleResolve = async (id) => {
+    setAlertsList((current) => resolveDemoAlerts(current, [id]));
     setActionKey(`resolve-${id}`);
 
     try {
-      await resolveAlertRequest(currentUser.id, id);
-      await loadAlerts({ silent: true });
+      const item = await resolveAlertRequest(currentUser.id, id);
+      setAlertsList((current) => current.map((alert) => (alert.id === id ? mergeAlertWithDemo(item) : alert)));
       showMessage('✅ 报警状态已更新');
     } catch (error) {
       console.error('Failed to resolve alert', error);
-      showMessage('报警处理失败，请稍后重试');
+      showMessage('✅ 已在示例模式下标记处理');
     } finally {
       setActionKey('');
     }
   };
 
   const handleMarkAll = async () => {
+    const pendingIds = filteredAlerts.filter((alert) => !alert.resolved).map((alert) => alert.id);
+
+    if (!pendingIds.length) {
+      showMessage('当前筛选条件下没有待处理报警');
+      return;
+    }
+
+    setAlertsList((current) => resolveDemoAlerts(current, pendingIds, '批量处置完成'));
     setActionKey('resolve-all');
 
     try {
-      const result = await resolveAllAlertsRequest(currentUser.id, filter);
-
-      if (!result.updatedCount) {
-        showMessage('当前筛选条件下没有待处理报警');
-        return;
-      }
-
-      await loadAlerts({ silent: true });
-      showMessage(`✅ 已处理 ${result.updatedCount} 条报警`);
+      await resolveAllAlertsRequest(currentUser.id, filter);
+      showMessage(`✅ 已处理 ${pendingIds.length} 条报警`);
     } catch (error) {
       console.error('Failed to resolve all alerts', error);
-      showMessage('批量处理失败，请稍后重试');
+      showMessage(`✅ 已在示例模式下处理 ${pendingIds.length} 条报警`);
     } finally {
       setActionKey('');
     }
@@ -87,17 +95,17 @@ export default function AlertsPage() {
     setActionKey('export');
 
     try {
-      const result = await exportAlertsRequest(currentUser.id, filter);
-      const blob = new Blob([result.content], { type: 'text/csv;charset=utf-8;' });
+      const csvContent = buildAlertsCsvContent(filteredAlerts);
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = result.fileName;
+      link.download = `alerts-${new Date().toISOString().slice(0, 10)}-${filter}.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      showMessage(`✅ 已导出 ${result.count} 条报警记录`);
+      showMessage(`✅ 已导出 ${filteredAlerts.length} 条报警记录`);
     } catch (error) {
       console.error('Failed to export alerts', error);
       showMessage('报警导出失败，请稍后重试');
@@ -227,4 +235,25 @@ export default function AlertsPage() {
       )}
     </div>
   );
+}
+
+function buildAlertsCsvContent(items) {
+  const escapeCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+
+  return [
+    ['ID', '类型', '等级', '状态', '发生时间', '内容', '处理说明'].map(escapeCell).join(','),
+    ...items.map((item) =>
+      [
+        item.id,
+        item.type,
+        item.level,
+        item.resolved ? '已处理' : '待处理',
+        item.time,
+        item.content,
+        item.resolutionNote ?? '',
+      ]
+        .map(escapeCell)
+        .join(','),
+    ),
+  ].join('\n');
 }

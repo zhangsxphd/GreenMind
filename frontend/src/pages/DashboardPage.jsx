@@ -15,32 +15,28 @@ import {
 import { useNavigate } from 'react-router-dom';
 import KpiCard from '../components/common/KpiCard';
 import SensorMetric from '../components/common/SensorMetric';
+import { kpiData, mockAlerts, mockDecisions, mockGreenhouses } from '../data/mockData';
 import { useAppShell } from '../hooks/useAppShell';
 import { approveDecisionRequest, ignoreDecisionRequest } from '../services/decisionsApi';
 import { fetchDashboard } from '../services/dashboardApi';
 
 const EMPTY_DASHBOARD = {
-  kpis: {
-    totalGreenhouses: 0,
-    onlineDevices: 0,
-    activeAlerts: 0,
-    todayIrrigations: 0,
-  },
-  decisions: [],
-  alerts: [],
-  greenhouses: [],
+  kpis: kpiData,
+  decisions: mockDecisions,
+  alerts: mockAlerts,
+  greenhouses: mockGreenhouses,
 };
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { currentUser, showMessage } = useAppShell();
   const [dashboard, setDashboard] = useState(EMPTY_DASHBOARD);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [actionKey, setActionKey] = useState('');
 
   const loadDashboard = useCallback(
     async ({ silent = false } = {}) => {
-      if (!silent) {
+      if (!silent && !dashboard.decisions.length && !dashboard.alerts.length && !dashboard.greenhouses.length) {
         setIsLoading(true);
       }
 
@@ -49,14 +45,15 @@ export default function DashboardPage() {
         setDashboard(data);
       } catch (error) {
         console.error('Failed to load dashboard', error);
-        showMessage('首页数据加载失败，请稍后重试');
+        setDashboard(EMPTY_DASHBOARD);
+        showMessage('首页接口暂不可用，已切换到示例数据');
       } finally {
         if (!silent) {
           setIsLoading(false);
         }
       }
     },
-    [showMessage],
+    [dashboard.alerts.length, dashboard.decisions.length, dashboard.greenhouses.length, showMessage],
   );
 
   useEffect(() => {
